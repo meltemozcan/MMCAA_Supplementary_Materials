@@ -1,0 +1,824 @@
+---
+title: "Supplementary Materials"
+shorttitle: Supplementary Materials
+output: 
+  pdf_document:
+    toc: true
+    toc_depth: 4
+    number_sections: true
+    keep_tex: true
+#classoption: man
+header-includes:
+- \usepackage{float}
+- \usepackage{placeins}
+- \usepackage{setspace}
+- \usepackage{subcaption}
+- \usepackage{array}
+- \makeatletter
+- \makeatother
+- \raggedbottom
+- \setlength{\parindent}{0.5in}
+---
+
+```{r include= FALSE}
+knitr::opts_chunk$set(warning = FALSE, cache = FALSE)
+knitr::opts_chunk$set(engine.opts = list(verbatim = TRUE))
+```
+
+\clearpage
+
+# Code for the Illustrative Example
+
+```{r message = FALSE}
+# Load libraries
+library(here)
+library(dplyr)
+library(kableExtra)
+library(lavaan)
+# install.packages("remotes")
+# remotes::install_github("marklhc/pinsearch")
+library(pinsearch)
+#remotes::install_github("mmm-usc/unbiasr", ref = "pkg")
+library(unbiasr)
+source('code/helper_functions_for_tables.R')
+```
+
+```{r include = FALSE}
+# This chunk determines whether to rerun some of the chunks to recreate the analyses
+# reported in the main manuscript, including the tables and figures.
+if (!dir.create("rds")) dir.create("rds")
+eval_dat <- !file.exists(here("addhealth_w1_dat.rds"))
+eval_config_fit <- !file.exists(here("rds/configural_fit_4g.rds"))
+
+# dat <- readRDS("rds/addhealth_w1_dat_updated.rds")
+
+# Configural and partial fits
+# configural_fit_W <- readRDS("rds/configural_fit_2g_W.rds")
+# configural_fit_H <- readRDS("rds/configural_fit_2g_H.rds")
+
+eval_pin_out <- !file.exists("rds/pin_out.rds")
+eval_pin_out_W <- !file.exists("rds/pin_out_W.rds")
+eval_pin_out_H <- !file.exists("rds/pin_out_H.rds")
+```
+
+## Data preparation
+
+```{r eval = eval_dat, message=FALSE}
+# Add Health Wave I, 1994-1995 public use data 
+# https://dataverse.unc.edu/dataset.xhtml?persistentId=doi:10.15139/S3/11900
+# Put the downloaded files in a folder named 'dataverse_files' in the working directory
+
+dt <- haven::read_sas(here("dataverse_files/w1inhome.sas7bdat")) 
+# See 'pubwgt1.pdf' for more info on the public use weights
+weights <- haven::read_sas(here("dataverse_files/w1weight.sas7bdat"))
+
+CESD_vars <- c(do.call(paste0, expand.grid("H1FS", 1:19)))
+cesd_labs <- 
+  c("bothered", "appetite", "blues", "good", "mind", "depressed", "tired", "hopeful",
+    "failure", "fearful", "happy", "talk", "lonely", "unfriendly", "enjoyed", "sad",
+    "dislike", "getstarted", "life")
+CESD_n <- c(do.call(paste0, expand.grid("cesd", c(1:19))))
+
+# create an ethnicity variable with levels "Black", 
+# "White", "Hispanic", and "Asian" using Boolean operators 
+dt$ethnicity <- "Other"
+dt[dt$H1GI6B==1 & dt$H1GI6A==0 & dt$H1GI6D==0 & dt$H1GI4==0, "ethnicity"] <-"Black"
+dt[dt$H1GI6B==0 & dt$H1GI6A==1 & dt$H1GI6D==0 & dt$H1GI4==0, "ethnicity"] <-"White"
+dt[dt$H1GI6B==0 & dt$H1GI6A==0 & dt$H1GI6D==1 & dt$H1GI4==0, "ethnicity"] <-"Asian"
+dt[dt$H1GI6B==0 & dt$H1GI6A==0 & dt$H1GI6D==0 & dt$H1GI4==1, "ethnicity"] <-"Hispanic"
+
+dt <- dt %>% select(AID, BIO_SEX, ethnicity, all_of(CESD_vars))
+colnames(dt) <- c("AID", "sex", "ethnicity", CESD_n)
+
+# Select the subset with complete CESD scores (filter rows where no item was 
+# 'refused' or 'don't know') and filter out the Other groups
+dt_sub <- dt %>%  
+  filter_at(vars(starts_with('cesd')), all_vars(. != 6 & . != 8)) %>% # removes 47 obs. 
+  filter(ethnicity != "Other") 
+colnames(dt_sub) <- c("AID", "sex", "ethnicity", cesd_labs) # 5848
+
+# Merge with weights
+dat <- left_join(dt_sub, weights, "AID") # 5848 x 24
+
+# Recode positively worded items to achieve a 'lack of' interpretation for consistency 
+dat$happy <- recode(dat$happy, `0` = 3, `1` = 2, `2` = 1, `3` = 0)
+dat$good <- recode(dat$good, `0` = 3, `1` = 2, `2` = 1, `3` = 0)
+dat$hopeful <- recode(dat$hopeful, `0` = 3, `1` = 2, `2` = 1, `3` = 0)
+dat$enjoyed <- recode(dat$enjoyed, `0` = 3, `1` = 2, `2` = 1, `3` = 0)
+
+labs <- paste0("i", 1:21)
+labs[7] <- "i7r"; labs[20] <- "i20r"
+labs <- labs[-c(11, 17)]
+colnames(dat) <- c("AID", "sex", "ethnicity", labs, "CLUSTER2", "GSWGT1")
+
+# Define binary ethnicity variables for the examples where groups are collapsed
+dat$White <- "non-White"
+dat$White[dat$ethnicity=="White"] <- "White"
+dat$Hispanic <- "non-Hispanic"
+dat$Hispanic[dat$ethnicity=="Hispanic"] <- "Hispanic"
+```
+
+```{r eval = eval_dat, include = FALSE}
+saveRDS(dat, here("addhealth_w1_dat.rds"))
+```
+
+```{r}
+dat <- readRDS("addhealth_w1_dat.rds")
+```
+
+```{r include = FALSE, eval = TRUE}
+labs <- paste0("i", 1:21)
+labs[7] <- "i7r"; labs[20] <- "i20r"
+labs <- labs[-c(11, 17)]
+```
+
+```{r message=FALSE, eval = TRUE}
+# Define miscellaneous variables
+item_factor <- paste0(
+  labs, "-",  c("F1", "F1", "F2", "F3", "F1", "F2", "F1", "F3", "F2", "F2", "F3", "F1", 
+       "F2", "F4", "F3", "F2", "F4", "F1", "F2" ))
+groups_wbha <- c("White", "Black", "Hispanic", "Asian")
+fitv <- c("chisq", "npar", "df", "pvalue", "rmsea.robust", "cfi.robust", "tli.robust", 
+ "srmr")
+cols <- c("#FF5733", "springgreen2", "magenta", "#33C3Ff")
+colsW <- c(cols[1], "black")
+colsH <- c("black", cols[3])
+names(colsW) <- c("White", "non-White")
+```
+
+
+\clearpage
+## Multi-group MCAA (4 groups)
+
+```{r}
+# Define the configural model string
+m1 <- '
+ F1 =~ i1 + i2 + i5 + i7r + i13 + i20r
+ F2 =~ i3 + i6 + i9 + i10 + i14 + i18 + i21
+ F3 =~ i4 + i8 + i12 + i16
+ F4 =~ i15 + i19
+'
+```
+
+```{r eval = eval_config_fit, message=FALSE}
+# Fit the configural model
+configural_fit <- cfa(
+  model = m1, data = dat, group = "ethnicity", estimator = "MLR", missing = "fiml", 
+  se = "robust.mlr", sampling.weights = "GSWGT1", group.label = groups_wbha) 
+```
+
+```{r eval = eval_config_fit}
+saveRDS(configural_fit, "rds/configural_fit_4g.rds")
+```
+
+```{r include = FALSE}
+configural_fit <- readRDS("rds/configural_fit_4g.rds")
+```
+
+```{r eval = eval_pin_out, message=FALSE}
+# Use pinsearch to automate the partial invariance model search process
+pin_out <- pinSearch(
+  config_mod = m1, data = dat, group = "ethnicity", estimator = "MLR", missing = "fiml", 
+  se = "robust.mlr", sampling.weights = "GSWGT1", group.label = groups_wbha, 
+  type = "residuals")
+partial_fit <- pin_out[[1]]
+```
+
+```{r eval = eval_pin_out}
+saveRDS(pin_out, "rds/pin_out.rds")
+```
+
+```{r include = FALSE}
+pin_out <- readRDS("rds/pin_out.rds")
+partial_fit <- pin_out[[1]]
+```
+
+```{r message=FALSE}
+# Equivalently, arguments used in repeated function calls can be stored in lists and 
+# passed to do.call() as below to minimize code repetition
+args_cfa <- 
+  list(data = dat, group = "ethnicity", estimator = "MLR", missing = "fiml", 
+       se = "robust.mlr", sampling.weights = "GSWGT1", group.label = groups_wbha)
+```
+
+```{r eval = FALSE}
+configural_fit <- do.call(cfa, c(m1, args_cfa))
+```
+
+```{r}
+args_pin <- c(args_cfa, type = "residuals")
+```
+
+```{r eval = FALSE}
+pin_out <- do.call(pinSearch, c(m1, args_pin))
+partial_fit <- pin_out[[1]]
+```
+
+```{r message=FALSE}
+# Extract model fit indices
+config_fit_stat <- fitMeasures(configural_fit, fitv)
+partial_fit_stat <- fitMeasures(partial_fit, fitv)
+
+# Examine fMACS effect size indices reflecting item-level bias across groups
+es <- pinsearch::pin_effsize(partial_fit)
+sort(round(es[,item_factor[item_factor %in% colnames(es)]], 3), decreasing = TRUE)
+
+# Compute mixing proportions
+weightsums <- tapply(dat$GSWGT1, dat$ethnicity, sum)
+mixp_unord <- weightsums / sum(weightsums)
+mixp <- matrix(c(mixp_unord[4], mixp_unord[2], mixp_unord[3], mixp_unord[1]), ncol = 4)
+colnames(mixp) <- groups_wbha
+```
+
+```{r message=FALSE, fig.show='hide'}
+# Latent factor weights: place weights proportional to item counts
+lw <- c(6, 7, 4, 2) / sum(c(6, 7, 4, 2))
+
+# Call PartInv() using the cfa() output object
+out_4g <- PartInv(
+  cfa_fit = partial_fit, pmix = mixp, weights_latent = lw, cut_z = 15.2, 
+  plot_contour = TRUE, show_mi_result = TRUE, custom_colors = cols)
+```
+
+```{r include = TRUE}
+# Overall ES
+to_asin <- function(x) 2 * asin(sqrt(x))
+get_multi_h <- function(pvec) {
+  asin_pvec <- to_asin(pvec)
+  2 * sqrt(mean((asin_pvec - mean(asin_pvec))^2))
+}
+multi_h_4g <- apply(out_4g$summary[, c(1, 5:7)], MARGIN = 1, FUN = get_multi_h)
+multi_h_4g
+```
+
+```{r fig.show='hide'}
+# Alternatively, call PartInv() using lists of parameter estimates 
+est <- unnest_list(lavInspect(partial_fit, "est"))
+out_4g <- PartInv(
+  alpha = est$alpha, psi = est$psi, lambda = est$lambda, nu = est$nu, 
+  theta = est$theta, pmix = mixp, weights_latent = lw, cut_z = 15.2, 
+  plot_contour = TRUE, show_mi_result = TRUE, custom_colors = cols,
+  labels = groups_wbha)
+```
+
+```{r fig.show='hide'}
+# Plot CAI and Adverse Impact Ratio across a range of thresholds
+plot_CAI_across_range(
+  x = out_4g, custom_colors = cols, cutoffs_from = 10, cutoffs_to = 30, 
+  add_vertical_threshold_at = 15.2)
+```
+
+\clearpage
+## Multi-group MCAA (two groups)
+### White vs. non-White
+```{r message=FALSE}
+# Update stored values, call do.call() to obtain configural and partial invariance models
+args_cfa_W <- args_cfa
+args_pin_W <- args_pin
+args_pin_W$group <- args_cfa_W$group <- "White"
+args_pin_W$group.label <- args_cfa_W$group.label <- c("non-White", "White")
+
+configural_fit_W <- do.call(cfa, c(m1, args_cfa_W))
+```
+
+```{r eval = eval_pin_out_W}
+pin_out_W <- do.call(pinSearch, c(m1, args_pin_W))
+partial_fit_W <- pin_out_W[[1]]
+```
+
+```{r eval = eval_pin_out_W}
+saveRDS(pin_out_W, "rds/pin_out_W.rds")
+```
+
+```{r include = FALSE}
+pin_out_W <- readRDS("rds/pin_out_W.rds")
+partial_fit_W <- pin_out_W[[1]]
+```
+
+```{r}
+# Examine fMACS effect size indices reflecting item-level bias across groups
+es_W <- pinsearch::pin_effsize(partial_fit_W)
+sort(round(es_W[, item_factor[item_factor %in% colnames(es_W)]], 3), decreasing = TRUE)
+
+config_fit_stat_W <- fitMeasures(configural_fit_W, fitv)
+partial_fit_stat_W <- fitMeasures(partial_fit_W, fitv)
+
+weightsums_W <- tapply(dat$GSWGT1, dat$White, sum)
+mixp_W <- weightsums_W / sum(weightsums_W)
+```
+
+```{r message=FALSE, echo=TRUE, fig.show='hide'}
+out_2g_W <- PartInv(
+  cfa_fit = partial_fit_W, pmix = mixp_W, weights_latent = lw,
+  cut_z = 15.2, plot_contour = TRUE, show_mi_result = TRUE, 
+  custom_colors = colsW, reference = "White")
+
+plot_CAI_across_range(
+  x = out_2g_W, cutoffs_from = 10, cutoffs_to = 30, 
+  add_vertical_threshold_at = 15.2, custom_colors = colsW)
+```
+
+
+
+### Hispanic vs. non-Hispanic
+```{r message=FALSE}
+# Update stored values, call do.call() to obtain configural and partial invariance models
+args_cfa_H <- args_cfa
+args_pin_H <- args_pin
+args_pin_H$group <- args_cfa_H$group <- "Hispanic"
+args_pin_H$group.label <- args_cfa_H$group.label <- c("non-Hispanic", "Hispanic")
+
+configural_fit_H <- do.call(cfa, c(m1, args_cfa_H))
+```
+
+```{r eval = eval_pin_out_H}
+pin_out_H <- do.call(pinSearch, c(m1, args_pin_H))
+partial_fit_H <- pin_out_H[[1]]
+```
+
+```{r eval = eval_pin_out_H}
+saveRDS(pin_out_H, "rds/pin_out_H.rds")
+```
+
+```{r include = FALSE}
+pin_out_H <- readRDS("rds/pin_out_H.rds")
+partial_fit_H <- pin_out_H[[1]]
+```
+
+```{r}
+# Examine fMACS effect size indices reflecting item-level bias across groups
+es_H <- pinsearch::pin_effsize(pin_out_H[[1]])
+sort(round(es_H[, item_factor[item_factor %in% colnames(es_H)]], 3), decreasing = TRUE)
+
+config_fit_stat_H <- fitMeasures(configural_fit_H, fitv)
+partial_fit_stat_H <- fitMeasures(partial_fit_H, fitv)
+
+weightsums_H <- tapply(dat$GSWGT1, dat$Hispanic, sum)
+mixp_unord <- weightsums_H / sum(weightsums_H)
+mixp_H <- matrix(c(mixp_unord[2], mixp_unord[1]), ncol = 2)
+colnames(mixp_H) <- c("non-Hispanic", "Hispanic")
+```
+
+
+```{r message=FALSE, echo=TRUE, fig.show='hide'}
+out_2g_H <- PartInv(
+  cfa_fit = partial_fit_H, pmix = mixp_H, weights_latent = lw, cut_z = 15.2, 
+  plot_contour = TRUE, show_mi_result = TRUE, custom_colors = colsH, 
+  reference = "non-Hispanic")
+
+plot_CAI_across_range(
+  x = out_2g_H, cutoffs_from = 10, cutoffs_to = 30, by = 0.1,
+  add_vertical_threshold_at = 15.2, custom_colors = colsH)
+```
+
+
+
+```{r include = FALSE}
+### RUN TO SAVE RDS FILES ###
+saveRDS(configural_fit_W, "rds/configural_fit_2g_W.rds")
+saveRDS(configural_fit_H, "rds/configural_fit_2g_H.rds")
+saveRDS(mixp, "rds/mixp_4g_wbha.rds")
+saveRDS(mixp_W, "rds/mixp_2g_W.rds")
+saveRDS(mixp_H, "rds/mixp_2g_H.rds")
+saveRDS(lw, "rds/lw.rds")
+
+saveRDS(out_4g, "rds/PartInv_out_4g.rds")
+saveRDS(out_2g_W, "rds/PartInv_out_2g_W.rds")
+saveRDS(out_2g_H, "rds/PartInv_out_2g_H.rds")
+
+saveRDS(config_fit_stat_W, "rds/config_fit_stat_W.rds")
+saveRDS(config_fit_stat_H, "rds/config_fit_stat_H.rds")
+saveRDS(config_fit_stat, "rds/config_fit_stat.rds")
+
+saveRDS(partial_fit_stat_W, "rds/partial_fit_stat_W.rds")
+saveRDS(partial_fit_stat_H, "rds/partial_fit_stat_H.rds")
+saveRDS(partial_fit_stat, "rds/partial_fit_stat.rds")
+```
+
+## Supporting analyses
+ 
+### Latent correlation estimates 
+```{r}
+# Extract list of parameter estimates
+est <- unnest_list(lavInspect(partial_fit, "est"))
+# Compute correlation coefficients for each group (%o%: outer product)
+lapply(est$psi, function(x) x / (sqrt(diag(x)) %o% sqrt(diag(x)))) 
+```
+### Census example: impact of measurement noninvariance
+\mbox{} 
+```{r message=FALSE}
+# https://www2.census.gov/programs-surveys/demo/tables/hispanic-origin/1995/1994-cps/sumtab-1.txt
+
+# First, compute approximate number of Hispanic individuals aged 10-19 using
+# the percentages reported in Table 1 (rows 5-6, column `Hispanic-origin population`)
+hisp10_19 <- 27521 * (9.1 + 8.5) / 100 * 1000
+
+# Compare the proportion selected (PS) in the reference group (White) under partial
+# invariance to the expected PS for the Hispanic group under partial invariance, after
+# matching the underlying distributions
+
+# PS for the Hispanic group assuming matched latent distributions
+PS_H <- out_4g$summary[5, "E_R(Hispanic)"]
+
+# PS for the reference group (benchmark under no measurement bias)
+PS_ref <- out_4g$summary[5, "White"] 
+
+round(PS_H - PS_ref, 2) # ~3% difference
+ceiling(hisp10_19 * (PS_H - PS_ref)) # ~145,889 more individuals screened in
+```
+
+### Sensitivity analysis using alignment optimization
+
+```{r message=FALSE}
+library(sirt)
+
+# Prepare the data and obtain the configural fit as before
+
+# Extract loadings and intercepts
+ests <- inspect(configural_fit, "est")
+# Indices of different dimensions
+ind_list <- list(1:6, 7:13, 14:17, 18:19)
+# Group sizes
+grp_size <- inspect(configural_fit, what = "nobs")
+# First dimension
+lam_fac1 <- lapply(ests, \(x) x$lambda[ind_list[[1]], 1])
+lam_fac1 <- do.call(rbind, lam_fac1)
+nu_fac1 <- lapply(ests, \(x) x$nu[ind_list[[1]], 1])
+nu_fac1 <- do.call(rbind, nu_fac1)
+align_fac1 <- invariance.alignment(
+  lam_fac1,
+  nu_fac1,
+  wgt = matrix(sqrt(grp_size), nrow = length(grp_size), ncol = ncol(lam_fac1))
+)
+fac1_syntax <- paste0(
+  "F1 ~~ c(", paste0(align_fac1$pars[, "psi0"]^2, collapse = ", "), ") * F1\n",
+  "F1 ~ c(", paste0(align_fac1$pars[, "alpha0"], collapse = ", "), ") * 1\n"
+)
+# Second dimension
+lam_fac2 <- lapply(ests, \(x) x$lambda[ind_list[[2]], 2])
+lam_fac2 <- do.call(rbind, lam_fac2)
+nu_fac2 <- lapply(ests, \(x) x$nu[ind_list[[2]], 1])
+nu_fac2 <- do.call(rbind, nu_fac2)
+align_fac2 <- invariance.alignment(
+  lam_fac2,
+  nu_fac2,
+  wgt = matrix(sqrt(grp_size), nrow = length(grp_size), ncol = ncol(lam_fac2))
+)
+fac2_syntax <- paste0(
+  "F2 ~~ c(", paste0(align_fac2$pars[, "psi0"]^2, collapse = ", "), ") * F2\n",
+  "F2 ~ c(", paste0(align_fac2$pars[, "alpha0"], collapse = ", "), ") * 1\n"
+)
+# Third dimension
+lam_fac3 <- lapply(ests, \(x) x$lambda[ind_list[[3]], 3])
+lam_fac3 <- do.call(rbind, lam_fac3)
+nu_fac3 <- lapply(ests, \(x) x$nu[ind_list[[3]], 1])
+nu_fac3 <- do.call(rbind, nu_fac3)
+align_fac3 <- invariance.alignment(
+  lam_fac3,
+  nu_fac3,
+  wgt = matrix(sqrt(grp_size), nrow = length(grp_size), ncol = ncol(lam_fac3))
+)
+fac3_syntax <- paste0(
+  "F3 ~~ c(", paste0(align_fac3$pars[, "psi0"]^2, collapse = ", "), ") * F3\n",
+  "F3 ~ c(", paste0(align_fac3$pars[, "alpha0"], collapse = ", "), ") * 1\n"
+)
+# Fourth dimension
+lam_fac4 <- lapply(ests, \(x) x$lambda[ind_list[[4]], 4])
+lam_fac4 <- do.call(rbind, lam_fac4)
+nu_fac4 <- lapply(ests, \(x) x$nu[ind_list[[4]], 1])
+nu_fac4 <- do.call(rbind, nu_fac4)
+align_fac4 <- invariance.alignment(
+  lam_fac4,
+  nu_fac4,
+  wgt = matrix(sqrt(grp_size), nrow = length(grp_size), ncol = ncol(lam_fac4))
+)
+fac4_syntax <- paste0(
+  "F4 ~~ c(", paste0(align_fac4$pars[, "psi0"]^2, collapse = ", "), ") * F4\n",
+  "F4 ~ c(", paste0(align_fac4$pars[, "alpha0"], collapse = ", "), ") * 1\n"
+)
+# Rerun CFA with aligned latent means and variances
+aligned_fit <- do.call(cfa, c(args_cfa, auto.fix.first = FALSE,
+  model = paste0(m1, fac1_syntax, fac2_syntax, fac3_syntax, fac4_syntax)))
+# summary(aligned_fit)
+```
+
+Examine $f_{\text{MACS}}$ effect size indices reflecting which items contribute the most bias.
+```{r}
+es_a <- pinsearch::pin_effsize(aligned_fit)
+sort(round(es_a[, item_factor[item_factor %in% colnames(es_a)]], 3), 
+     decreasing = TRUE)
+```
+
+\clearpage
+
+# Tables
+
+```{r include=FALSE}
+build_model_fit_table(2, "rds/config_fit_stat_W.rds", "rds/partial_fit_stat_W.rds",
+    suffix = "2g_W")
+build_model_fit_table(2, "rds/config_fit_stat_H.rds", "rds/partial_fit_stat_H.rds",
+    suffix = "2g_H")
+```
+
+```{r echo = FALSE, message = FALSE}
+model_fit_kable(pth = c("rds/fit_tab2g_W.rds", "rds/fit_tab2g_H.rds"), 
+                cap = " (two groups).", 
+                cases = c("White vs. Non-White", "Non-Hispanic vs. Hispanic"),
+                addft = "Groups were collapsed to achieve a binary grouping for illustrative purposes.")
+```
+
+\clearpage
+```{r include=FALSE, eval = FALSE}
+lapply(labs, function(x) 
+  print(pin_out_W[[2]][pin_out_W[[2]]$lhs == x | pin_out_W[[2]]$rhs == x,]))
+```
+
+```{=latex}
+\begin{table}
+\centering
+\caption{Non-invariant measurement parameters (two groups).}
+\label{tab:noninvitemsh}
+  \resizebox{\ifdim\width>\linewidth\linewidth\else\width\fi}{!}{
+\begin{threeparttable}
+\begin{tabular}{l *{4}{>{\centering\arraybackslash}p{1cm}} | *{4}{>{\centering\arraybackslash}p{1cm}}}
+\toprule
+& \multicolumn{4}{c}{White vs. non-White} & \multicolumn{4}{c}{non-Hispanic vs. Hispanic}  \\\midrule
+Item & $\lambda$ & $\nu$ & $\theta$ & $d_{\text{MACS}}$ & $\lambda$ & $\nu$ & $\theta$ & $d_{\text{MACS}}$
+\\\midrule
+\multicolumn{5}{l}{\emph{1. Somatic Complaints}} 
+\\\midrule
+ i1   (bothered)     & - & - & * & -    & - & * & * & .129    \\
+ i2   (appetite)     & * & * & * & .092 & - & - & - & -       \\
+ i5   (mind)         & - & - & - & -    & - & - & * & -         \\
+ i7r  (tired)        & - & * & * & .097 & - & - & - & -         \\
+ i13  (talk)         & - & * & * & .182 & - & - & * & -          \\
+ i20r (getstarted)   & - & - & - & -        & - & - & - &  
+ \\\hline
+\multicolumn{5}{l}{\emph{2. Negative Affect}}
+\\\midrule
+ i3   (blues)        & - & - & * & -         & - & - & - & -    \\
+ i6   (depressed)    & - & - & * & -         & - & - & - & -    \\
+ i9   (failure)      & * & * & * & .246 & - & * & * & .148      \\
+ i10  (fearful)      & * & * & * & .114 & - & * & * & .116      \\
+ i14  (lonely)       & * & * & * & .114 & - & - & - & -         \\
+ i18  (sad)          & - & - & * & -    & - & - & - & -         \\
+ i21  (worthliving)  & * & * & * & .168 & - & * & * & .140     
+ \\\hline
+\multicolumn{5}{l}{\emph{3. (Lack of) Positive Affect}}
+\\\midrule
+ i4   (good)         & - & - & * & -    & - & * & * & .177      \\
+ i8   (hopeful)      & - & - & * & -    & - & * & * & .126      \\
+ i12  (happy)        & - & - & * & -    & - & - & * & -         \\
+ i16  (enjoy)        & - & - & * & -    & - & - & - & -    
+ \\\hline
+\multicolumn{5}{l}{\emph{4. Interpersonal Relations}}
+\\\midrule
+ i15  (unfriendly)   & - & * & - & .087 & - & - & - & - \\
+ i19  (dislike)      & - & - & * & -    & - & - & * & -    
+ \\\bottomrule
+\end{tabular}
+\begin{tablenotes}
+\item \textit{Note.} "-" indicates invariance. $\lambda$, $\nu$, and $\theta$ refer to factor loadings, intercepts, and uniqueness parameters. $d_{\text{MACS}}$ reflects the item-level effect size of measurement noninvariance across two groups. * indicates that the parameter was noninvariant.
+\end{tablenotes}
+\end{threeparttable}}
+\end{table}
+```
+
+\clearpage
+```{r include = FALSE}
+build_parameter_table(2, "rds/pin_out_W.rds", c("White","non-White"),
+                      suffix = "2g_W")
+build_parameter_table(2, "rds/pin_out_H.rds", c("non-Hispanic", "Hispanic"),
+                      suffix = "2g_H")
+build_parameter_table(2, "rds/pin_out.rds", groups_wbha, suffix = "4g")
+```
+
+```{r echo = FALSE}
+parameter_kable(
+  pth = c("rds/parameter_tab2g_W.rds", "rds/parameter_tab2g_H.rds"),
+  ng = 2, groups = list(c("NW", "W"), c("NH", "H")), 
+  cases = c("White vs. Non-White", "Non-Hispanic vs. Hispanic"),
+  addft = "NW, W, NH, and H refer to non-White, White, non-Hispanic, and Hispanic respectively. Groups were collapsed to achieve a binary grouping for illustrative purposes.")
+```
+
+
+
+\clearpage
+
+```{r include = FALSE, eval = TRUE}
+est_W <- unnest_list(lavInspect(pin_out_W[[1]], "est"))
+est_H <- unnest_list(lavInspect(pin_out_H[[1]], "est"))
+```
+
+\clearpage
+```{r echo = FALSE, message = FALSE}
+build_psi_alpha_table(2, est_psi = est_W$psi, est_alpha = est_W$alpha, suffix = "2g_W")
+psi_alpha_kable("rds/psi_alpha_tab2g_W.rds", groups = c("non-White", "White"))
+```
+\clearpage
+```{r echo = FALSE, message = FALSE}
+build_psi_alpha_table(2, est_psi = est_H$psi, est_alpha = est_H$alpha, suffix = "2g_H")
+psi_alpha_kable("rds/psi_alpha_tab2g_H.rds", groups = c("non-Hispanic", "Hispanic"))
+```
+\clearpage
+```{r echo = FALSE}
+build_CAI_table(3, "rds/PartInv_out_4g.rds", ng = 4,suffix = "4g")
+build_CAI_table(3, "rds/PartInv_out_2g_W.rds", ng = 2, suffix = "2g_W")
+build_CAI_table(3, "rds/PartInv_out_2g_H.rds", ng = 2, suffix = "2g_H")
+```
+```{r echo = FALSE, message = FALSE}
+CAI_kable(pth = c("rds/CAI_tab2g_W.rds", "rds/CAI_tab2g_H.rds"),
+  groups = c("White","non-White", "non-Hispanic", "Hispanic"),
+  cases = c("White vs Non-White", "Non-Hispanic vs. Hispanic"), ng = 2,
+  cap = " (two groups)",
+  addft = "Groups were collapsed to achieve a binary grouping for illustrative purposes.")
+```
+
+\clearpage
+```{r echo=FALSE}
+build_rEf_h_table("rds/PartInv_out_4g.rds", dig = 2, ng = 4, suffix = "4g")
+build_rEf_h_table("rds/PartInv_out_2g_W.rds", dig = 2, ng = 2, suffix = "2g_W")
+build_rEf_h_table("rds/PartInv_out_2g_H.rds", dig = 2, ng = 2, suffix = "2g_H")
+```
+
+```{r include = FALSE}
+if (!file.exists("rds/href_tab4g_multi.rds")) {
+  href_tab4g <- readRDS("rds/href_tab4g.rds")
+  href_tab4g_multi <- cbind(href_tab4g, `$h_\\text{multi}$` = round(multi_h_4g, 2))
+  saveRDS(href_tab4g_multi, "rds/href_tab4g_multi.rds")
+}
+```
+
+```{r echo = FALSE}
+rEf_h_kable(pth = c("rds/href_tab2g_W.rds", "rds/href_tab2g_H.rds"),
+            groups = c(c("White", "non-White", "non-Hispanic", "non-Hispanic")),
+            cases = c(c("White vs Non-White"), c("Non-Hispanic vs. Hispanic")),
+            ng = 2,
+  addft = " Groups were collapsed to achieve a binary grouping for illustrative purposes.")
+```
+
+\clearpage
+
+# Figures 
+
+```{=latex}
+\begin{figure}[ht]
+\caption{Joint bivariate distributions of observed and latent scores (White, non-White).}
+\begin{minipage}{\textwidth}
+  \begin{subfigure}{.5\textwidth}
+    \includegraphics[width=1\textwidth]{figures/partial_W.png}
+  \end{subfigure}%
+  \begin{subfigure}{.5\textwidth}
+    \includegraphics[width=1\textwidth]{figures/strict_W.png}
+  \end{subfigure}
+\end{minipage}
+\parbox{\textwidth}{The figures illustrate the joint bivariate distributions of observed and latent scores for each group under partial (left) and strict (right) measurement invariance (two groups). Quadrants TP, FP, TN, and FN correspond to True Positive, False Positive, True Negative, and False Negative rates. Groups were collapsed to achieve a binary grouping for illustrative purposes.}
+\end{figure}
+```
+\clearpage
+
+```{=latex}
+\begin{figure}[ht]
+\caption{Joint bivariate distributions of observed and latent scores (non-Hispanic, Hispanic).}
+\begin{minipage}{\textwidth}
+  \begin{subfigure}{.5\textwidth}
+    \includegraphics[width=1\textwidth]{figures/partial_H.png}
+  \end{subfigure}%
+  \begin{subfigure}{.5\textwidth}
+    \includegraphics[width=1\textwidth]{figures/strict_H.png}
+  \end{subfigure}
+\end{minipage}
+\parbox{\textwidth}{The figures illustrate the joint bivariate distributions of observed and latent scores for each group under partial (left) and strict (right) measurement invariance (two groups). Quadrants TP, FP, TN, and FN correspond to True Positive, False Positive, True Negative, and False Negative rates. Groups were collapsed to achieve a binary grouping for illustrative purposes.}
+\end{figure}
+```
+
+\clearpage
+
+```{=latex}
+\begin{figure}[ht]
+\caption{Proportions selected (PS) and success ratios (SR) at different cutoffs ($Z_c$) by group (White, non-White).}
+\centering
+\begin{subfigure}{.5\textwidth}
+  \includegraphics[width=\linewidth]{figures/PS_par_2g_W.png}
+\end{subfigure}%
+\begin{subfigure}{.5\textwidth}
+  \includegraphics[width=\linewidth]{figures/PS_str_2g_W.png}
+\end{subfigure}
+\begin{subfigure}{.5\textwidth}
+  \includegraphics[width=\linewidth]{figures/SR_par_2g_W.png}
+\end{subfigure}%
+\begin{subfigure}{.5\textwidth}
+  \includegraphics[width=\linewidth]{figures/SR_str_2g_W.png}
+  \end{subfigure}
+\parbox{\textwidth}{Figures on the left reflect partial MI and the figures on the right indicate strict MI. The vertical dotted line at 15.2 is equivalent to Radloff's (1977) suggested cutoff of 16 on 20 items. Groups were collapsed to achieve a binary grouping for illustrative purposes.}
+\end{figure}
+```
+\clearpage
+```{=latex}
+\begin{figure}[ht]
+\caption{Sensitivity (SE), Specificity (SP), and Adverse Impact ratios (AIR) at different cutoffs ($Z_c$) by group (White, non-White).}
+\centering
+\begin{subfigure}{.5\textwidth}
+  \includegraphics[width=\linewidth]{figures/SE_par_2g_W.png}
+\end{subfigure}%
+\begin{subfigure}{.5\textwidth}
+  \includegraphics[width=\linewidth]{figures/SE_str_2g_W.png}
+\end{subfigure}
+\vspace{-0.5em}  
+\begin{subfigure}{.5\textwidth}
+  \includegraphics[width=\linewidth]{figures/SP_par_2g_W.png}
+\end{subfigure}%
+\begin{subfigure}{.5\textwidth}
+  \includegraphics[width=\linewidth]{figures/SP_str_2g_W.png}
+\end{subfigure}
+\vspace{-0.5em}
+\begin{subfigure}{.5\textwidth}
+\centering
+  \includegraphics[width=\linewidth]{figures/AI_2g_W.png}
+\end{subfigure}
+\parbox{\textwidth}{In the first two rows, figures on the left reflect partial MI and the figures on the right indicate strict MI. The vertical dotted line at 15.2 is equivalent to Radloff's (1977) suggested cutoff of 16 on 20 items. Groups were collapsed to achieve a binary grouping for illustrative purposes.}
+\end{figure}
+```
+
+\clearpage
+```{=latex}
+\begin{figure}[ht]
+\caption{Proportions selected (PS) and success ratios (SR) at different cutoffs ($Z_c$) by group (non-Hispanic, Hispanic).}
+\centering
+\begin{subfigure}{.5\textwidth}
+  \includegraphics[width=\linewidth]{figures/PS_par_2g_H.png}
+\end{subfigure}%
+\begin{subfigure}{.5\textwidth}
+  \includegraphics[width=\linewidth]{figures/PS_str_2g_H.png}
+\end{subfigure}
+\begin{subfigure}{.5\textwidth}
+  \includegraphics[width=\linewidth]{figures/SR_par_2g_H.png}
+\end{subfigure}%
+\begin{subfigure}{.5\textwidth}
+  \includegraphics[width=\linewidth]{figures/SR_str_2g_H.png}
+  \end{subfigure}
+\parbox{\textwidth}{Figures on the left reflect partial MI and the figures on the right indicate strict MI. The vertical dotted line at 15.2 is equivalent to Radloff's (1977) suggested cutoff of 16 on 20 items. Groups were collapsed to achieve a binary grouping for illustrative purposes.}
+\end{figure}
+```
+
+```{=latex}
+\begin{figure}[ht]
+\caption{Sensitivity (SE), Specificity (SP), and Adverse Impact ratios (AIR) at different cutoffs ($Z_c$) by group (non-Hispanic, Hispanic).}
+\centering
+\begin{subfigure}{.5\textwidth}
+  \includegraphics[width=\linewidth]{figures/SE_par_2g_H.png}
+\end{subfigure}%
+\begin{subfigure}{.5\textwidth}
+  \includegraphics[width=\linewidth]{figures/SE_str_2g_H.png}
+\end{subfigure}
+\vspace{-0.5em}  
+\begin{subfigure}{.5\textwidth}
+  \includegraphics[width=\linewidth]{figures/SP_par_2g_H.png}
+\end{subfigure}%
+\begin{subfigure}{.5\textwidth}
+  \includegraphics[width=\linewidth]{figures/SP_str_2g_H.png}
+\end{subfigure}
+\vspace{-0.5em}
+\begin{subfigure}{.5\textwidth}
+\centering
+  \includegraphics[width=\linewidth]{figures/AI_2g_H.png}
+\end{subfigure}
+\parbox{\textwidth}{In the first two rows, figures on the left reflect partial MI and the figures on the right indicate strict MI. The vertical dotted line at 15.2 is equivalent to Radloff's (1977) suggested cutoff of 16 on 20 items. Groups were collapsed to achieve a binary grouping for illustrative purposes.}
+\end{figure}
+```
+
+\clearpage
+
+# Differential item weights
+
+Here, we demonstrate how item weighting with factor scores can be implemented. In practice, sum scores are commonly used for instruments such as the CES-D, and this section is provided for illustrative purposes only. In the following, we used `lavPredict()` with the fitted `cfa` object to obtain Bartlett score coefficient matrices for each group, averaged these to derive a single set of coefficients, mapped items to their respective factors using the model syntax, and then extracted the corresponding item–factor coefficients to serve as item weights. The new cutoff adjusting for the revised weighting scheme was $z_c = 7.16$. \emph{pmix} was specified as before, and `PartInv()` was called with these configurations and the partial MI `cfa()` output from Step 1 to apply the multi-group MCAA framework.
+
+```{r eval = FALSE, message=FALSE}
+# Note: Before running the code below, run the relevant code chunks from the
+# illustrative example to prepare the data, fit the configural and partial 
+# models, define the mixing weights (mixp) etc.
+
+# Latent factor weights: place weights proportional to item counts
+lw <- c(6, 7, 4, 2) / sum(c(6, 7, 4, 2))
+
+# Item weights: use Bartlett factor score coefficients
+fsm <- attr(lavPredict(partial_fit, method = "bartlett", fsm = TRUE), "fsm") 
+# Average matrices across groups 
+fsm_avg <- Reduce("+", fsm) / length(fsm)
+# Map items to factors using the model syntax string
+map_i_F <- with(subset(lavaanify(m1), op == "=~"), setNames(lhs, rhs))
+# Extract the coefficient for each item for the appropriate factor
+iw <- fsm_avg[cbind(map_i_F, names(map_i_F))]
+# adj_w: scaling constant = average of item weights (used to adjust cutoff values)
+adj_w <- sum(iw) / 19 
+
+# Call PartInv() using the cfa() output object
+out_4g_w <- PartInv(
+  cfa_fit = partial_fit, pmix = mixp, weights_latent = lw, weights_item = iw, 
+  cut_z = 15.2 * adj_w, plot_contour = TRUE, show_mi_result = TRUE, custom_colors = cols)
+
+# Plot CAI and Adverse Impact Ratio across a range of thresholds
+plot_CAI_across_range(
+  x = out_4g_w, custom_colors = cols, cutoffs_from = 10 * adj_w, 
+  cutoffs_to = 30 * adj_w, add_vertical_threshold_at = 15.2 * adj_w)
+```
